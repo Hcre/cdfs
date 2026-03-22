@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h2>C++ DFS 分片上传演示</h2>
+    <input type="file" id="fileInput">
+    <button onclick="startUpload()">开始上传</button>
+    <button onclick="mergeFile()">合并文件</button>
+    
+    <!-- 进度条 -->
+    <div style="width: 300px; border: 1px solid #ccc; margin-top: 10px;">
+        <div id="progressBar" style="width: 0%; height: 20px; background-color: green;"></div>
+    </div>
+    <p id="status"></p>
+
+    <!-- 引用 spark-md5 计算 MD5 (需要你自己下载这个js库，或者用 CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.0/spark-md5.min.js"></script>
+
+    <script>
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+        let fileMD5 = ""; 
+
+        async function startUpload() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) return;
+
+            document.getElementById('status').innerText = "正在计算 MD5...";
+            fileMD5 = await computeMD5(file); // 算出大文件的唯一ID
+            document.getElementById('status').innerText = "MD5: " + fileMD5 + "，开始上传...";
+
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            
+            // 循环上传每一片
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(file.size, start + CHUNK_SIZE);
+                const chunkData = file.slice(start, end); // 【核心】切片
+
+                const formData = new FormData();
+                formData.append("file", chunkData);
+                formData.append("md5", fileMD5);
+                formData.append("chunk", i);
+                formData.append("chunks", totalChunks);
+
+                // 发送请求
+                await fetch('/upload_chunk', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                // 更新进度条
+                const percent = Math.round(((i + 1) / totalChunks) * 100);
+                document.getElementById('progressBar').style.width = percent + "%";
+                document.getElementById('status').innerText = `正在上传第 ${i+1}/${totalChunks} 片`;
+            }
+
+            document.getElementById('status').innerText = "上传完成，请点击合并";
+        }
+
+        async function mergeFile() {
+            const file = document.getElementById('fileInput').files[0];
+            const formData = new FormData();
+            formData.append("md5", fileMD5);
+            formData.append("filename", file.name);
+            formData.append("scene", "default");
+
+            const resp = await fetch('/merge', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await resp.json();
+            document.getElementById('status').innerText = "合并成功! URL: " + result.data.url;
+        }
+
+        // 辅助函数：计算文件 MD5 (简单版)
+        function computeMD5(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                reader.onload = (e) => {
+                    resolve(SparkMD5.ArrayBuffer.hash(e.target.result));
+                };
+            });
+        }
+    </script>
+</body>
+</html>
